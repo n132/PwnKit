@@ -103,22 +103,18 @@ class PwnCmd(object):
         """ Get canary value """
         self._showitem("Canary ",getcanary())
 
-    # def fmtarg(self,*arg):
-    #     (addr,) = normalize_argv(arg,1)
-    #     getfmtarg(addr)
-
     def off(self,*arg) :
         """ Calculate the offset of libc """
-        #(sym,)= normalize_argv(arg,1)
         (sym,) = normalize_argv(arg,1)
         symaddr = getoff(sym)
-        if symaddr == 0 :
-            print("Not found the symbol")
+        print(symaddr,symaddr==False)
+        if symaddr == False :
+            print(color.RED+"[-] Not found the symbol")
         else :
             if type(sym) is int :
-                print("\033[34m" + hex(sym)  + ":" + "\033[37m" +hex(symaddr))
+                self._showitem(hex(sym),symaddr)
             else :
-                print("\033[34m" + sym  + ":" + "\033[37m" +hex(symaddr))
+                self._showitem(sym,symaddr)
     
     def fp(self,*arg):
         """ show FILE structure """
@@ -150,13 +146,19 @@ class PwnCmd(object):
             # Functions 
             print(color.BOLD+color.DARKCYAN +"============= Function =============")
             for f in magic_function :
-                print(color.BOLD+color.RED+'%-36s%s%s: \033[33m0x%08x'%(f,color.END,color.BOLD,getoff(f)))
+                value = getoff(f)
+                if value == False:
+                    continue
+                print(color.BOLD+color.RED+'%-36s%s%s: \033[33m0x%08x'%(f,color.END,color.BOLD,value))
             # Varibales
             print(color.BOLD+color.DARKCYAN +"============= Variable =============")
             for v in magic_variable :
                 cmd = "x/" + word + "&" +v
                 content = gdb.execute(cmd,to_string=True).split(":")[1].strip()
-                offset = hex(getoff("&"+ v))
+                value = getoff("&"+ v)
+                if value == False:
+                    continue
+                offset = hex(value)
                 pad = 36 - len(v) - len(offset) - 2
                 print(color.BOLD+color.BLUE+"%s\033[33m(%s)\033[37m%s: \033[37m%s" % (v, offset, ' ' *pad, content))
             # Strings
@@ -170,7 +172,6 @@ class PwnCmd(object):
                 print(color.BOLD+color.GREEN+'%-36s%s%s: \033[33m0x%08x'%(v,color.END,color.BOLD,content))     
         except :
             print("You need run the program first")
-
 
     def findsyscall(self):
         """ find the syscall gadget"""
@@ -216,7 +217,7 @@ class PwnCmd(object):
             subprocess.call("ROPgadget --binary \"" + procname +"\"",shell=True)
         else :
             print("No current process or executable file specified." )
-
+    
     def findcall(self,*arg):
         """ Find some function call """
         (sym,)= normalize_argv(arg,1)
@@ -318,7 +319,30 @@ class PwnCmd(object):
             codebaseaddr,_ = codeaddr()
             cmd += hex(codebaseaddr + arg1)
         print(gdb.execute(cmd,to_string=True)[:-1])
+    
+    def ctx(self):
+        print(gdb.execute("context",to_string=True)[:-1])
+        return 
+    
+    def check(self,*arg):
+        # Idea comes from https://github.com/zolutal/pwn_gadget 
+        """ Examine if all one_gadgets are valid"""
 
+        (arg1,) = normalize_argv(arg,1)
+        regs = get_regs()
+        infomap = procmap()
+        data = re.search(".*libc*\.so.*",infomap)
+            
+        if data :
+            libcPath = data.group().split(" ")[-1]
+            cmd = f"one_gadget -l {arg1} " + libcPath
+            print(cmd)
+            res = subprocess.check_output(cmd,shell=True).split("\n")
+            print(res)
+            
+        else :
+            return 0
+    
 class PwngdbCmd(gdb.Command):
     """ Pwngdb command wrapper """
     def __init__(self):
@@ -519,7 +543,7 @@ def getoff(sym):
                 symaddr = int(data[:-1] ,16)
                 return symaddr-libc
         except :
-            return 0
+            return False
 
 def searchcall(sym):
     procname = getprocname()
@@ -547,11 +571,18 @@ def get_reg(reg):
     result = int(gdb.execute(cmd,to_string=True).split()[1].strip(),16)
     return result
 
+def get_regs():
+    regs = ['rax','rbx','rcx','rdx','rsi','rdi','rbp','rsp','r8','r9','r10','r11','r12','r13','r14','r15']
+    res  = {}
+    for reg in regs:
+        res[reg] = get_reg(reg)
+    return res
+
 def showfp(addr):
     if addr : 
         cmd = "p *(struct _IO_FILE_plus *)" + hex(addr)
         try :
-            result = gdb.execute(cmd)
+            gdb.execute(cmd)
         except :
             print("Can't not access 0x%x" % addr)
     else :
@@ -628,20 +659,6 @@ def testfsop(addr=None):
                 testorange(chain)
     except :
         print("Chain is corrupted")
-
-# def getfmtarg(addr):
-#     if capsize == 0 :
-#         getarch()
-#     if arch == "i386" :
-#         start = get_reg("esp")
-#         idx = (addr- start)/4
-#         print("The index of format argument : %d (\"\%%%d$p\")" % (idx,idx - 1))
-#     elif arch == "x86-64" :
-#         start = get_reg("rsp")
-#         idx = (addr - start)/8 + 6
-#         print("The index of format argument : %d (\"\%%%d$p\")" % (idx,idx - 1))
-#     else :
-#         print("Not support the arch")
 
 pwncmd = PwnCmd()
 PwngdbCmd()

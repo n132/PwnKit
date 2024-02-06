@@ -332,13 +332,21 @@ class PwnCmd(object):
         regs = get_regs()
         infomap = procmap()
         data = re.search(".*libc*\.so.*",infomap)
-            
+        if arg1 == None:
+            arg1 = 0
         if data :
             libcPath = data.group().split(" ")[-1]
-            cmd = f"one_gadget -l {arg1} " + libcPath
-            print(cmd)
-            res = subprocess.check_output(cmd,shell=True).split("\n")
-            print(res)
+            cmd = f"one_gadget -l {arg1} " + libcPath            
+            items = subprocess.check_output(cmd,shell=True).split(b"\n\n")
+            for item in items:
+                lines = item.decode().split("\n")
+                header = lines[:2]
+                func = header[0].split(" ")
+                print(color.BOLD+color.YELLOW+func[0]+color.END+" "+" ".join(func[1:]))
+                print(color.CYAN+header[1]+color.END)
+                constrains = [x.strip() for x in lines[2:]]
+                verfyconstrains(constrains)
+                # print(constrains)
             
         else :
             return 0
@@ -659,6 +667,10 @@ def testfsop(addr=None):
                 testorange(chain)
     except :
         print("Chain is corrupted")
+def verfyconstrains(constrains):
+    for cs in constrains:
+        if cs.startswith('address ') and cs.endswith()
+
 
 pwncmd = PwnCmd()
 PwngdbCmd()

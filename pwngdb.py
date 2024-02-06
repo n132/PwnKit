@@ -15,9 +15,19 @@ capsize = 0
 word = ""
 arch = ""
 magic_variable = ["__malloc_hook","__free_hook","__realloc_hook","stdin","stdout","_IO_list_all","__after_morecore_hook"]
-magic_function = ["system","execve","open","read","write","gets","setcontext+0x35"]
+magic_function = ["system","execve","open","read","write","gets","setcontext"]
 
-
+class color:
+   PURPLE = '\033[95m'
+   CYAN = '\033[96m'
+   DARKCYAN = '\033[36m'
+   BLUE = '\033[94m'
+   GREEN = '\033[92m'
+   YELLOW = '\033[93m'
+   RED = '\033[91m'
+   BOLD = '\033[1m'
+   UNDERLINE = '\033[4m'
+   END = '\033[0m'
 def to_int(val):
     """
     Convert a string to int number
@@ -130,16 +140,16 @@ class PwnCmd(object):
         getarch()
         
         try :
-            print("========== function ==========")
+            print(color.BOLD+"========== Functions ==========")
             for f in magic_function :
-                print("\033[34m" + f  + ":" + "\033[33m" +hex(getoff(f))) 
-            print("\033[00m========== variables ==========")
+                print(color.BOLD+'\033[34m%-36s: \033[33m0x%08x'%(f,getoff(f)))
+            print(color.BOLD+"\033[00m========== Variables ==========")
             for v in magic_variable :
                 cmd = "x/" + word + "&" +v
                 content = gdb.execute(cmd,to_string=True).split(":")[1].strip()
                 offset = hex(getoff("&"+ v))
                 pad = 36 - len(v) - len(offset) - 2
-                print("\033[34m%s\033[33m(%s)\033[37m%s: \033[37m%s" % (v, offset, ' ' *pad, content))
+                print(color.BOLD+"\033[34m%s\033[33m(%s)\033[37m%s: \033[37m%s" % (v, offset, ' ' *pad, content))
         except :
             print("You need run the program first")
 

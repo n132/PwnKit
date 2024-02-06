@@ -14,6 +14,7 @@ directory       = path.abspath(directory)
 capsize = 0
 word = ""
 arch = ""
+
 # magic_variable = ["__malloc_hook","__free_hook","__realloc_hook","stdin","stdout","_IO_list_all","__after_morecore_hook"]
 magic_variable = ["__malloc_hook","__free_hook","__realloc_hook","stdin","stdout"]
 magic_function = ["system","execve","open","read","write","gets","setcontext"]
@@ -64,42 +65,47 @@ class PwnCmd(object):
     def __init__(self):
         # list all commands
         self.commands = [cmd for cmd in dir(self) if callable(getattr(self, cmd)) ]  
-
+    def _showitem(self,key,value):
+        print(color.BOLD+color.BLUE + key +" : " + color.YELLOW + hex(value))
+    def base(self):
+        """ Get all base """
+        self.codebase()
+        self.heapbase()
+        self.libc()
+        self.ld()
+        
     def libc(self):
         """ Get libc base """
-        libcbs = libcbase()
-
-        print("\033[34m" + "libc : " + "\033[37m" + hex(libcbs))
+        self._showitem("Libc",libcbase())
 
     def heapbase(self):
         """ Get heapbase """
         heapbase = getheapbase()
         if heapbase :
-            print("\033[34m" + "heapbase : " + "\033[37m" + hex(heapbase))
+            self._showitem("Heap",heapbase)
         else :
-            print("heap not found")
-
+            self._showitem("Heap",0)
 
     def ld(self):
         """ Get ld.so base """
-        print("\033[34m" + "ld : " + "\033[37m" + hex(ldbase()))
+        self._showitem("Ld  ",ldbase())
 
     def codebase(self):
         """ Get text base """
         codebs = codeaddr()[0]
-        print("\033[34m" + "codebase : " + "\033[37m" + hex(codebs))
+        self._showitem("Code",codebs)
 
     def tls(self):
         """ Get tls base """
-        print("\033[34m" + "tls : " + "\033[37m" + hex(gettls()))
+        self._showitem("tls ",gettls())
 
     def canary(self):
         """ Get canary value """
-        print("\033[34m" + "canary : " + "\033[37m" + hex(getcanary()))
+        self._showitem("Canary ",getcanary())
 
-    def fmtarg(self,*arg):
-        (addr,) = normalize_argv(arg,1)
-        getfmtarg(addr)
+    # def fmtarg(self,*arg):
+    #     (addr,) = normalize_argv(arg,1)
+    #     getfmtarg(addr)
 
     def off(self,*arg) :
         """ Calculate the offset of libc """
@@ -623,19 +629,19 @@ def testfsop(addr=None):
     except :
         print("Chain is corrupted")
 
-def getfmtarg(addr):
-    if capsize == 0 :
-        getarch()
-    if arch == "i386" :
-        start = get_reg("esp")
-        idx = (addr- start)/4
-        print("The index of format argument : %d (\"\%%%d$p\")" % (idx,idx - 1))
-    elif arch == "x86-64" :
-        start = get_reg("rsp")
-        idx = (addr - start)/8 + 6
-        print("The index of format argument : %d (\"\%%%d$p\")" % (idx,idx - 1))
-    else :
-        print("Not support the arch")
+# def getfmtarg(addr):
+#     if capsize == 0 :
+#         getarch()
+#     if arch == "i386" :
+#         start = get_reg("esp")
+#         idx = (addr- start)/4
+#         print("The index of format argument : %d (\"\%%%d$p\")" % (idx,idx - 1))
+#     elif arch == "x86-64" :
+#         start = get_reg("rsp")
+#         idx = (addr - start)/8 + 6
+#         print("The index of format argument : %d (\"\%%%d$p\")" % (idx,idx - 1))
+#     else :
+#         print("Not support the arch")
 
 pwncmd = PwnCmd()
 PwngdbCmd()

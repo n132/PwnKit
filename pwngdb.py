@@ -19,6 +19,9 @@ arch = ""
 magic_variable = ["__malloc_hook","__free_hook","__realloc_hook","stdin","stdout"]
 magic_function = ["system","execve","open","read","write","gets","setcontext"]
 magic_string   = ["/bin/sh"]
+
+gset = []
+n132Test = []
 class color:
    PURPLE = '\033[95m'
    CYAN = '\033[96m'
@@ -347,7 +350,6 @@ class PwnCmd(object):
                 constrains = [x.strip() for x in lines[2:]]
                 verfyconstrains(constrains)
                 # print(constrains)
-            
         else :
             return 0
     
@@ -667,9 +669,169 @@ def testfsop(addr=None):
                 testorange(chain)
     except :
         print("Chain is corrupted")
+
+def ifwritable(addr):
+    vmmap_res = gdb.execute(f"vmmap {addr}",to_string=True)
+    if "Warning: not found or cannot access procfs" in vmmap_res:
+        return False
+    elif vmmap_res.split('\n')[1].split(" ")[2][1]=='w':
+        return True
+    else:
+        return False
+def _expression_translate(exp):
+    stack = []
+    marks = []
+    res = ''
+    if "[" not in exp and "]" not in exp:
+        ''' xmm? '''
+        return exp
+    for _ in exp:
+        if _ == "[":
+            marks.append(len(stack))
+            stack.append(_)
+        elif _ == "]":
+            mark = marks.pop()
+            res = "*(size_t *)("+"".join(stack[mark+1:])+")"
+            stack = stack[:mark]
+            stack.append(res)
+        else:
+            stack.append(_)
+    return res
+            
+
 def verfyconstrains(constrains):
+    regs = get_regs()
     for cs in constrains:
-        if cs.startswith('address ') and cs.endswith()
+        if cs.startswith('address ') and cs.endswith(' is writable'):
+            target_addr = '$'+cs[len('address '):-len(' is writable')]
+            res = ifwritable(target_addr)
+            if not res:
+                print('\t'+color.RED+cs+color.END)
+            else:
+                print('\t'+color.GREEN+cs+color.END)
+        else:
+            # print(cs)
+            paracs = cs.split(" || ")
+            # print(paracs)
+            state_res = False
+            
+            for exp in paracs:
+                if exp=="":
+                    continue
+                cmd = exp.replace("NULL","0")
+                # print(cmd)
+                if "is a valid" in cmd:
+                    state_res = "Not Sure"
+                    continue
+                elif cmd.startswith("[["):
+                    cmd = "**(size_t **)($"+cmd[2:].replace("]]",")")
+                elif cmd.startswith("["):
+                    cmd = "*(size_t *)($"+cmd[1:].replace("]",")")                    
+                elif re.search(r'\b(rax|rbx|rcx|rdx|rsi|rdi|rbp|rsp|r8|r9|r10|r11|r12|r13|r14|r15)\b == 0',cmd):
+                    """ check if one register is NULLed"""
+                    pass
+                elif cmd.startswith("addresses ") and cmd.endswith(' are writable'):
+                    cmd = cmd[len("addresses "):-len(' are writable')].split(", ")
+                    allPassed = True
+                    for _ in cmd:
+                        if not ifwritable(_):
+                            allPassed = False
+                            break
+                    if allPassed:
+                        state_res = True
+                        break
+                    else:
+                        state_res = False
+                        continue
+                elif re.search(r'^\([su](8|16|32|64)\)',cmd):
+                    
+                    pattern = r"^\(.*?\)"
+                    vctype = re.findall(pattern,cmd)[0][1:-1]
+                    pattern = r"^\(.*?\)"
+                    cmd = re.sub(pattern,"",cmd)
+                    match vctype:
+                        case "u8":
+                            vctype = "__u8"
+                        case "u16":
+                            vctype = "__u16"
+                        case "u32":
+                            vctype = "__u32"
+                        case "u64":
+                            vctype = "__u64"
+                        case "s8":
+                            vctype = "char"
+                        case "s16":
+                            vctype = "short"
+                        case "s32":
+                            vctype = "int"
+                        case "s64":
+                            vctype = "long long"
+                        case _:
+                            state_res = "Not Sure"
+                            break
+                    
+                    
+                    cmd = re.sub(r'\b(rax|rbx|rcx|rdx|rsi|rdi|rbp|rsp|r8|r9|r10|r11|r12|r13|r14|r15|xmm[0-9]+)\b',r'$\1',cmd)
+                    if len(cmd.split(" "))!=3:
+                        state_res = "Not Sure"
+                        break
+                    
+                    expression, relateion, value = cmd.split(" ")
+                    expression = _expression_translate(expression)
+                    if "xmm" not in expression:
+                        cmd = f"({vctype}){expression} {relateion} {value}"
+                    else:
+                        if vctype.startswith("__u64"):
+                            expression = re.sub(r'\$xmm[0-3]?[0-9]',r'\g<0>.v2_int64[0]',expression)
+                        else:
+                            """not support now"""
+                            state_res = "Not Sure"
+                            break
+                        cmd = f"({vctype}){expression} {relateion} {value}"                    
+                    
+                elif cmd.startswith('writable: '):
+                    """" If writable """
+                    cmd = "$" + cmd[len('writable: '):]
+                    if ifwritable(cmd):
+                        state_res = True
+                        break
+                    else:
+                        state_res = False
+                        continue
+                elif cmd.endswith(" & 0xf == 0"):
+                    """" Aliagnment """
+                    cmd = cmd[:-len(" & 0xf == 0")]
+                    if regs[cmd]&0xf==0:
+                        state_res = True
+                        break
+                    else:
+                        state_res = False
+                        continue
+                elif re.search(r'\b(rax|rbx|rcx|rdx|rsi|rdi|rbp|rsp|r8|r9|r10|r11|r12|r13|r14|r15)\b[\+\-]0x[0-9a-f]+ == 0',cmd):
+                    """ check if one register (add/sum a number) is NULLed"""
+                    pass
+                else:
+                    cmd = "$"+cmd
+                    gset.append(f'p/x {cmd}')
+                cmd = f'p/x {cmd}'
+                try:
+                    # print(cmd)
+                    res = gdb.execute(cmd,to_string=True)
+                    if res.strip().split("= ")[1]=="0x0":
+                        state_res = False
+                    else:
+                        state_res = True
+                        break
+                except:
+                    continue
+            if state_res == True:
+                print('\t'+color.GREEN+cs+color.END)
+            elif state_res == False:
+                print('\t'+color.RED+cs+color.END)
+            else:
+                print('\t'+color.YELLOW+cs+color.END)
+    # print(set(gset))
+    # print(set(n132Test))
 
 
 pwncmd = PwnCmd()

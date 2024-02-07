@@ -823,8 +823,7 @@ def verfyconstrains(constrains):
                 print('\t'+color.RED+cs+color.END)
             else:
                 print('\t'+color.YELLOW+cs+color.END)
-    # print(set(gset))
-    # print(set(n132Test))
+
 
 
 pwncmd = PwnCmd()

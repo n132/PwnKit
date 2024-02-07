@@ -710,26 +710,25 @@ def verfyconstrains(constrains):
             else:
                 print('\t'+color.GREEN+cs+color.END)
         else:
-            # print(cs)
             paracs = cs.split(" || ")
-            # print(paracs)
             state_res = False
-            
             for exp in paracs:
                 if exp=="":
                     continue
                 cmd = exp.replace("NULL","0")
-                # print(cmd)
                 if "is a valid" in cmd:
                     state_res = "Not Sure"
                     continue
                 elif cmd.startswith("[["):
                     cmd = "**(size_t **)($"+cmd[2:].replace("]]",")")
                 elif cmd.startswith("["):
-                    cmd = "*(size_t *)($"+cmd[1:].replace("]",")")                    
+                    cmd = "*(size_t *)($"+cmd[1:].replace("]",")")   
+                elif re.search(r'\b(rax|rbx|rcx|rdx|rsi|rdi|rbp|rsp|r8|r9|r10|r11|r12|r13|r14|r15)\b[\+\-]0x[0-9a-f]+ == 0',cmd):
+                    """ check if one register (add/sum a number) is NULLed"""
+                    cmd = "$"+cmd                 
                 elif re.search(r'\b(rax|rbx|rcx|rdx|rsi|rdi|rbp|rsp|r8|r9|r10|r11|r12|r13|r14|r15)\b == 0',cmd):
                     """ check if one register is NULLed"""
-                    pass
+                    cmd = "$"+cmd
                 elif cmd.startswith("addresses ") and cmd.endswith(' are writable'):
                     cmd = cmd[len("addresses "):-len(' are writable')].split(", ")
                     allPassed = True
@@ -744,7 +743,6 @@ def verfyconstrains(constrains):
                         state_res = False
                         continue
                 elif re.search(r'^\([su](8|16|32|64)\)',cmd):
-                    
                     pattern = r"^\(.*?\)"
                     vctype = re.findall(pattern,cmd)[0][1:-1]
                     pattern = r"^\(.*?\)"
@@ -769,13 +767,10 @@ def verfyconstrains(constrains):
                         case _:
                             state_res = "Not Sure"
                             break
-                    
-                    
                     cmd = re.sub(r'\b(rax|rbx|rcx|rdx|rsi|rdi|rbp|rsp|r8|r9|r10|r11|r12|r13|r14|r15|xmm[0-9]+)\b',r'$\1',cmd)
                     if len(cmd.split(" "))!=3:
                         state_res = "Not Sure"
                         break
-                    
                     expression, relateion, value = cmd.split(" ")
                     expression = _expression_translate(expression)
                     if "xmm" not in expression:
@@ -788,7 +783,6 @@ def verfyconstrains(constrains):
                             state_res = "Not Sure"
                             break
                         cmd = f"({vctype}){expression} {relateion} {value}"                    
-                    
                 elif cmd.startswith('writable: '):
                     """" If writable """
                     cmd = "$" + cmd[len('writable: '):]
@@ -807,20 +801,19 @@ def verfyconstrains(constrains):
                     else:
                         state_res = False
                         continue
-                elif re.search(r'\b(rax|rbx|rcx|rdx|rsi|rdi|rbp|rsp|r8|r9|r10|r11|r12|r13|r14|r15)\b[\+\-]0x[0-9a-f]+ == 0',cmd):
-                    """ check if one register (add/sum a number) is NULLed"""
-                    pass
                 else:
                     cmd = "$"+cmd
                     gset.append(f'p/x {cmd}')
                 cmd = f'p/x {cmd}'
+                # print(cmd)
                 try:
-                    # print(cmd)
                     res = gdb.execute(cmd,to_string=True)
                     if res.strip().split("= ")[1]=="0x0":
                         state_res = False
+                        # print(cmd , state_res)
                     else:
                         state_res = True
+                        # print(cmd , state_res)
                         break
                 except:
                     continue

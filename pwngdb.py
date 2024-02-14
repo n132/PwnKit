@@ -3,7 +3,15 @@ import gdb
 import subprocess
 import re
 import copy
+import codecs
+
+import six
 from os import path
+
+
+
+import tempfile
+
 
 directory, file = path.split(__file__)
 directory       = path.expanduser(directory)
@@ -110,7 +118,6 @@ class PwnCmd(object):
         """ Calculate the offset of libc """
         (sym,) = normalize_argv(arg,1)
         symaddr = getoff(sym)
-        print(symaddr,symaddr==False)
         if symaddr == False :
             print(color.RED+"[-] Not found the symbol")
         else :
@@ -119,6 +126,12 @@ class PwnCmd(object):
             else :
                 self._showitem(sym,symaddr)
     
+    def lof(self,*arg) :
+        """ Give an offset and return libc.address+off"""
+        (off,) = normalize_argv(arg,1)
+        print(color.YELLOW+hex(libcbase()+off)+color.END)
+
+
     def fp(self,*arg):
         """ show FILE structure """
         (addr,) = normalize_argv(arg,1)
@@ -332,7 +345,6 @@ class PwnCmd(object):
         """ Examine if all one_gadgets are valid"""
 
         (arg1,) = normalize_argv(arg,1)
-        regs = get_regs()
         infomap = procmap()
         data = re.search(".*libc*\.so.*",infomap)
         if arg1 == None:
@@ -352,7 +364,163 @@ class PwnCmd(object):
                 # print(constrains)
         else :
             return 0
+    def _msg(self,s):
+        print(s)
+    def _dumpmem(self, start, end):
+        """
+        Dump process memory from start to end
+
+        Args:
+            - start: start address (Int)
+            - end: end address (Int)
+
+        Returns:
+            - memory content (raw bytes)
+        """
+        mem = None
+        logfd = tmpfile(is_binary_file=True)
+        logname = logfd.name
+        out = self.execute_redirect("dump memory %s 0x%x 0x%x" % (logname, start, end))
+        if out is None:
+            return None
+        else:
+            logfd.flush()
+            mem = logfd.read()
+            logfd.close()
+
+        return mem
+    # def searchmem(self, *arg):
+    #     # searchmem(self, start, end, search, mem=None):
+    #     """
+    #     Search for all instances of a pattern in memory from start to end
+
+    #     Args:
+    #         - start: start address (Int)
+    #         - end: end address (Int)
+    #         - search: string or python regex pattern (String)
+    #         - mem: cached mem to not re-read for repeated searches (raw bytes)
+
+    #     Returns:
+    #         - list of found result: (address(Int), hex encoded value(String))
+
+    #     """
+    #     (search,start,end) = normalize_argv(arg,3)
+        
+    #     result = []
+    #     if end < start:
+    #         (start, end) = (end, start)
+
+    #     if mem is None:
+    #         mem = self._dumpmem(start, end)
+
+    #     if not mem:
+    #         return result
+
+    #     if isinstance(search, six.string_types) and search.startswith("0x"):
+    #         # hex number
+    #         search = search[2:]
+    #         if len(search) %2 != 0:
+    #             search = "0" + search
+    #         search = codecs.decode(search, 'hex')[::-1]
+    #         search = re.escape(search)
+
+    #     # Convert search to bytes if is not already
+    #     if not isinstance(search, bytes):
+    #         search = search.encode('utf-8')
+
+    #     try:
+    #         p = re.compile(search)
+    #     except:
+    #         search = re.escape(search)
+    #         p = re.compile(search)
+
+    #     found = list(p.finditer(mem))
+    #     for m in found:
+    #         index = 1
+    #         if m.start() == m.end() and m.lastindex:
+    #             index = m.lastindex+1
+    #         for i in range(0,index):
+    #             if m.start(i) != m.end(i):
+    #                 result += [(start + m.start(i), codecs.encode(mem[m.start(i):m.end(i)], 'hex'))]
+
+    #     return result
+        # searchmem(), searchmem_by_range()
     
+    def pager(self, text, pagesize=None):
+        """
+        Paging output, mimic external command less/more
+        """
+        if not pagesize:
+            pagesize = 30
+
+        if pagesize <= 0:
+            self._msg(text)
+            return
+
+        i = 1
+        text = text.splitlines()
+        l = len(text)
+
+        for line in text:
+            self._msg(line)
+            if i % pagesize == 0:
+                ans = input("--More--(%d/%d)" % (i, l))
+                if ans.lower().strip() == "q":
+                    break
+            i += 1
+
+        return
+    def searchmem(self, *arg):
+        """
+        Search for a pattern in memory; support regex search
+        Usage:
+            MYNAME pattern start end
+            MYNAME pattern mapname
+        """
+        (pattern, start, end) = normalize_argv(arg, 3)
+        (pattern, mapname) = normalize_argv(arg, 2)
+        if pattern is None:
+            self._missing_argument()
+        
+        pattern = arg[0]
+        result = []
+        if end is None and to_int(mapname):
+            vmrange = peda.get_vmrange(mapname)
+            if vmrange:
+                (start, end, _, _) = vmrange
+
+        if end is None:
+            self._msg("Searching for %s in: %s ranges" % (repr(pattern), mapname))
+            result = self.searchmem_by_range(mapname, pattern)
+        else:
+            self._msg("Searching for %s in range: 0x%x - 0x%x" % (repr(pattern), start, end))
+            result = self.searchmem(start, end, pattern)
+
+        text = peda.format_search_result(result)
+        pager(text)
+
+        return
+
+    # def searchmem_by_range(self, mapname, search):
+    #     """
+    #     Search for all instances of a pattern in virtual memory ranges
+
+    #     Args:
+    #         - search: string or python regex pattern (String)
+    #         - mapname: name of virtual memory range (String)
+
+    #     Returns:
+    #         - list of found result: (address(Int), hex encoded value(String))
+    #     """
+
+    #     result = []
+    #     ranges = self.get_vmmap(mapname)
+    #     if ranges:
+    #         for (start, end, perm, name) in ranges:
+    #             if "r" in perm:
+    #                 result += self.searchmem(start, end, search)
+
+    #     return result
 class PwngdbCmd(gdb.Command):
     """ Pwngdb command wrapper """
     def __init__(self):
@@ -672,9 +840,11 @@ def testfsop(addr=None):
 
 def ifwritable(addr):
     vmmap_res = gdb.execute(f"vmmap {addr}",to_string=True)
-    if "Warning: not found or cannot access procfs" in vmmap_res:
+    # print(vmmap_res.split('\n')[3].split("    ")[1][-3])
+    if "Warning: not found or cannot access procfs" in vmmap_res or \
+        "There are no mappings for specified address or module." in vmmap_res:
         return False
-    elif vmmap_res.split('\n')[1].split(" ")[2][1]=='w':
+    elif vmmap_res.split('\n')[3].split("    ")[1][-3]=='w':
         return True
     else:
         return False
@@ -702,6 +872,7 @@ def _expression_translate(exp):
 def verfyconstrains(constrains):
     regs = get_regs()
     for cs in constrains:
+        
         if cs.startswith('address ') and cs.endswith(' is writable'):
             target_addr = '$'+cs[len('address '):-len(' is writable')]
             res = ifwritable(target_addr)
@@ -824,6 +995,11 @@ def verfyconstrains(constrains):
             else:
                 print('\t'+color.YELLOW+cs+color.END)
 
+def tmpfile(pref="peda-", is_binary_file=False):
+    """Create and return a temporary file with custom prefix"""
+
+    mode = 'w+b' if is_binary_file else 'w+'
+    return tempfile.NamedTemporaryFile(mode=mode, prefix=pref)
 
 
 pwncmd = PwnCmd()

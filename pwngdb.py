@@ -368,13 +368,14 @@ class PwnCmd(object):
         print(s)
     def _error_msg(self,s):
         print(color.RED + s + color.END)
-    def _memSegs(self):
+    def _memSegs(self,readable=True):
         res = []
         lines = procmap().strip().split("\n")
         for x in lines:
             items = [item for item in x.split(" ") if item !=""]
-            if "r" not in items[1]:
-                continue
+            if readable:
+                if "r" not in items[1] or items[-1]=='[vvar]':
+                    continue
             if len(items) == 5:
                 items.append("mapped")
             assert(len(items)==6)
@@ -410,45 +411,6 @@ class PwnCmd(object):
             i += 1
 
         return
-    # def _format_search_result(self, result, display=256):
-    #     """
-    #     Format the result from various memory search commands
-
-    #     Args:
-    #         - result: result of search commands (List)
-    #         - display: number of items to display
-
-    #     Returns:
-    #         - text: formatted text (String)
-    #     """
-
-    #     text = ""
-    #     if not result:
-    #         text = "Not found"
-    #     else:
-    #         maxlen = 0
-    #         maps = self.get_vmmap()
-    #         shortmaps = []
-    #         for (start, end, perm, name) in maps:
-    #             shortname = os.path.basename(name)
-    #             if shortname.startswith("lib"):
-    #                 shortname = shortname.split("-")[0]
-    #             shortmaps += [(start, end, perm, shortname)]
-
-    #         count = len(result)
-    #         if display != 0:
-    #             count = min(count, display)
-    #         text += "Found %d results, display max %d items:\n" % (len(result), count)
-    #         for (addr, v) in result[:count]:
-    #             vmrange = self.get_vmrange(addr, shortmaps)
-    #             maxlen = max(maxlen, len(vmrange[3]))
-
-    #         for (addr, v) in result[:count]:
-    #             vmrange = self.get_vmrange(addr, shortmaps)
-    #             chain = self.examine_mem_reference(addr)
-    #             text += "%s : %s" % (vmrange[3].rjust(maxlen), format_reference_chain(chain) + "\n")
-
-    #     return text
     def _getMemRange(self,):
         mapslines = procmap().strip().split("\n")
         start   = mapslines[0].split("-")[0]
@@ -478,9 +440,7 @@ class PwnCmd(object):
         
         self._msg("Searching for %s in range: 0x%x - 0x%x" % (repr(pattern), start, end))
         result = self._searchmem(start, end, pattern)
-
-        text = self._format_search_result(result)
-        self.pager(text)
+        self.pager(result)
 
         return
     def _searchmem(self, start, end, search, mem=None):
@@ -525,26 +485,32 @@ class PwnCmd(object):
         except:
             search = re.escape(search)
             p = re.compile(search)
-        print(p)
-        input()
-        found = []
+        result = ""
         for seg_start, seg_end, seg_name in mem:
-
-            
-            found.extend()
-
-
-
-        found = list(p.finditer(mem))
-        for m in found:
-            index = 1
-            if m.start() == m.end() and m.lastindex:
-                index = m.lastindex+1
-            for i in range(0,index):
-                if m.start(i) != m.end(i):
-                    result += [(start + m.start(i), codecs.encode(mem[m.start(i):m.end(i)], 'hex'))]
-        print(result)
+            seg_mem = self._dumpmem(seg_start,seg_end)
+            found = list(p.finditer(seg_mem))
+            for i in found:
+                result+=color.RED+seg_name+color.END+": "+color.YELLOW+hex(i.start()+seg_start)+color.END+'\n'
         return result
+    def _dumpmem(self,start,end):
+        """
+        Dump process memory from start to end
+
+        Args:
+            - start: start address (Int)
+            - end: end address (Int)
+
+        Returns:
+            - memory content (raw bytes)
+        """
+        mem = None
+        logfd = tmpfile(is_binary_file=True)
+        logname = logfd.name
+        gdb.execute("dump memory %s 0x%x 0x%x" % (logname, start, end),to_string=True)
+        logfd.flush()
+        mem = logfd.read()
+        logfd.close()
+        return mem
     # def searchmem_by_range(self, mapname, search):
     #     """
     #     Search for all instances of a pattern in virtual memory ranges

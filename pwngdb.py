@@ -366,86 +366,26 @@ class PwnCmd(object):
             return 0
     def _msg(self,s):
         print(s)
-    def _dumpmem(self, start, end):
-        """
-        Dump process memory from start to end
+    def _error_msg(self,s):
+        print(color.RED + s + color.END)
+    def _memSegs(self):
+        res = []
+        lines = procmap().strip().split("\n")
+        for x in lines:
+            items = [item for item in x.split(" ") if item !=""]
+            if "r" not in items[1]:
+                continue
+            if len(items) == 5:
+                items.append("mapped")
+            assert(len(items)==6)
+            segRange = items[0].split("-")
+            # start, end, name
+            res.append([int(segRange[0],16), int(segRange[1],16), items[-1]])
+        return res
 
-        Args:
-            - start: start address (Int)
-            - end: end address (Int)
+    import os
 
-        Returns:
-            - memory content (raw bytes)
-        """
-        mem = None
-        logfd = tmpfile(is_binary_file=True)
-        logname = logfd.name
-        out = self.execute_redirect("dump memory %s 0x%x 0x%x" % (logname, start, end))
-        if out is None:
-            return None
-        else:
-            logfd.flush()
-            mem = logfd.read()
-            logfd.close()
-
-        return mem
-    # def searchmem(self, *arg):
-    #     # searchmem(self, start, end, search, mem=None):
-    #     """
-    #     Search for all instances of a pattern in memory from start to end
-
-    #     Args:
-    #         - start: start address (Int)
-    #         - end: end address (Int)
-    #         - search: string or python regex pattern (String)
-    #         - mem: cached mem to not re-read for repeated searches (raw bytes)
-
-    #     Returns:
-    #         - list of found result: (address(Int), hex encoded value(String))
-
-    #     """
-    #     (search,start,end) = normalize_argv(arg,3)
-        
-    #     result = []
-    #     if end < start:
-    #         (start, end) = (end, start)
-
-    #     if mem is None:
-    #         mem = self._dumpmem(start, end)
-
-    #     if not mem:
-    #         return result
-
-    #     if isinstance(search, six.string_types) and search.startswith("0x"):
-    #         # hex number
-    #         search = search[2:]
-    #         if len(search) %2 != 0:
-    #             search = "0" + search
-    #         search = codecs.decode(search, 'hex')[::-1]
-    #         search = re.escape(search)
-
-    #     # Convert search to bytes if is not already
-    #     if not isinstance(search, bytes):
-    #         search = search.encode('utf-8')
-
-    #     try:
-    #         p = re.compile(search)
-    #     except:
-    #         search = re.escape(search)
-    #         p = re.compile(search)
-
-    #     found = list(p.finditer(mem))
-    #     for m in found:
-    #         index = 1
-    #         if m.start() == m.end() and m.lastindex:
-    #             index = m.lastindex+1
-    #         for i in range(0,index):
-    #             if m.start(i) != m.end(i):
-    #                 result += [(start + m.start(i), codecs.encode(mem[m.start(i):m.end(i)], 'hex'))]
-
-    #     return result
-        # searchmem(), searchmem_by_range()
-    
+    # Peda stuff
     def pager(self, text, pagesize=None):
         """
         Paging output, mimic external command less/more
@@ -470,37 +410,141 @@ class PwnCmd(object):
             i += 1
 
         return
+    # def _format_search_result(self, result, display=256):
+    #     """
+    #     Format the result from various memory search commands
+
+    #     Args:
+    #         - result: result of search commands (List)
+    #         - display: number of items to display
+
+    #     Returns:
+    #         - text: formatted text (String)
+    #     """
+
+    #     text = ""
+    #     if not result:
+    #         text = "Not found"
+    #     else:
+    #         maxlen = 0
+    #         maps = self.get_vmmap()
+    #         shortmaps = []
+    #         for (start, end, perm, name) in maps:
+    #             shortname = os.path.basename(name)
+    #             if shortname.startswith("lib"):
+    #                 shortname = shortname.split("-")[0]
+    #             shortmaps += [(start, end, perm, shortname)]
+
+    #         count = len(result)
+    #         if display != 0:
+    #             count = min(count, display)
+    #         text += "Found %d results, display max %d items:\n" % (len(result), count)
+    #         for (addr, v) in result[:count]:
+    #             vmrange = self.get_vmrange(addr, shortmaps)
+    #             maxlen = max(maxlen, len(vmrange[3]))
+
+    #         for (addr, v) in result[:count]:
+    #             vmrange = self.get_vmrange(addr, shortmaps)
+    #             chain = self.examine_mem_reference(addr)
+    #             text += "%s : %s" % (vmrange[3].rjust(maxlen), format_reference_chain(chain) + "\n")
+
+    #     return text
+    def _getMemRange(self,):
+        mapslines = procmap().strip().split("\n")
+        start   = mapslines[0].split("-")[0]
+        end     = mapslines[-2].split("-")[0]
+        return int(start.strip(),16), int(end.strip(),16)
     def searchmem(self, *arg):
-        """
+        # TODO:
+        # Add Filters so we can search for a specific range
+        
+        usage="""
         Search for a pattern in memory; support regex search
         Usage:
             MYNAME pattern start end
             MYNAME pattern mapname
         """
         (pattern, start, end) = normalize_argv(arg, 3)
-        (pattern, mapname) = normalize_argv(arg, 2)
+        
         if pattern is None:
-            self._missing_argument()
+            self._error_msg(usage)
+            return
         
         pattern = arg[0]
         result = []
-        if end is None and to_int(mapname):
-            vmrange = peda.get_vmrange(mapname)
-            if vmrange:
-                (start, end, _, _) = vmrange
+        if end==None and start==None:
+            start, end = self._getMemRange()
 
-        if end is None:
-            self._msg("Searching for %s in: %s ranges" % (repr(pattern), mapname))
-            result = self.searchmem_by_range(mapname, pattern)
-        else:
-            self._msg("Searching for %s in range: 0x%x - 0x%x" % (repr(pattern), start, end))
-            result = self.searchmem(start, end, pattern)
+        
+        self._msg("Searching for %s in range: 0x%x - 0x%x" % (repr(pattern), start, end))
+        result = self._searchmem(start, end, pattern)
 
-        text = peda.format_search_result(result)
-        pager(text)
+        text = self._format_search_result(result)
+        self.pager(text)
 
         return
+    def _searchmem(self, start, end, search, mem=None):
+        # searchmem(self, start, end, search, mem=None):
+        """
+        Search for all instances of a pattern in memory from start to end
 
+        Args:
+            - start: start address (Int)
+            - end: end address (Int)
+            - search: string or python regex pattern (String)
+            - mem: cached mem to not re-read for repeated searches (raw bytes)
+
+        Returns:
+            - list of found result: (address(Int), hex encoded value(String))
+
+        """        
+        result = []
+        if end < start:
+            (start, end) = (end, start)
+
+        if mem is None:
+            mem = self._memSegs()
+        if not mem:
+            return result
+        
+        
+        if isinstance(search, six.string_types) and search.startswith("0x"):
+            # hex number
+            search = search[2:]
+            if len(search) %2 != 0:
+                search = "0" + search
+            search = codecs.decode(search, 'hex')[::-1]
+            search = re.escape(search)
+
+        # Convert search to bytes if is not already
+        if not isinstance(search, bytes):
+            search = search.encode('utf-8')
+
+        try:
+            p = re.compile(search)
+        except:
+            search = re.escape(search)
+            p = re.compile(search)
+        print(p)
+        input()
+        found = []
+        for seg_start, seg_end, seg_name in mem:
+
+            
+            found.extend()
+
+
+
+        found = list(p.finditer(mem))
+        for m in found:
+            index = 1
+            if m.start() == m.end() and m.lastindex:
+                index = m.lastindex+1
+            for i in range(0,index):
+                if m.start(i) != m.end(i):
+                    result += [(start + m.start(i), codecs.encode(mem[m.start(i):m.end(i)], 'hex'))]
+        print(result)
+        return result
     # def searchmem_by_range(self, mapname, search):
     #     """
     #     Search for all instances of a pattern in virtual memory ranges

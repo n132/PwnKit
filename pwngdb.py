@@ -467,7 +467,6 @@ class PwnCmd(object):
         if not mem:
             return result
         
-        
         if isinstance(search, six.string_types) and search.startswith("0x"):
             # hex number
             search = search[2:]
@@ -490,7 +489,7 @@ class PwnCmd(object):
             seg_mem = self._dumpmem(seg_start,seg_end)
             found = list(p.finditer(seg_mem))
             for i in found:
-                result+=color.RED+seg_name+color.END+": "+color.YELLOW+hex(i.start()+seg_start)+color.END+'\n'
+                result+=color.RED+seg_name+color.END+" "*(0x10-len(seg_name))+": "+color.YELLOW+hex(i.start()+seg_start)+color.END+'\n'
         return result
     def _dumpmem(self,start,end):
         """

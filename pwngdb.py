@@ -179,12 +179,14 @@ class PwnCmd(object):
                 print(color.BOLD+color.BLUE+"%s\033[33m(%s)\033[37m%s: \033[37m%s" % (v, offset, ' ' *pad, content))
             # Strings
             print(color.BOLD+color.DARKCYAN +"============== String ==============")
-            for v in magic_string :
+            for v in magic_string:
                 cmd = "searchmem " + v
                 content = gdb.execute(cmd,to_string=True)
                 if "Not found" in content:
                     continue
-                content = int(content.split(":")[3].strip().split(' --> ')[0][6:-4],16) - libcbase()
+                content = int(content.split(": ")[2][5:-5],16)
+                # content = int.strip(),16)# [0][6:-4],16) - libcbase()
+                # print(content)
                 print(color.BOLD+color.GREEN+'%-36s%s%s: \033[33m0x%08x'%(v,color.END,color.BOLD,content))     
         except :
             print("You need run the program first")

@@ -205,6 +205,22 @@ class PwnCmd(object):
             gdb.execute("find 0xd4000001 " + hex(start) + " " + hex(end) )
         else :
             print("error")
+    def plt(self):
+        """ Print the plt table """
+        processname = getprocname()
+        if processname :
+            cmd = """objdump -d -j .plt.sec {} | grep '.*\<.*@plt\>' """.format(processname)
+            got = subprocess.check_output(cmd, shell=True).decode("utf8").strip("\n")
+            got = got.split("\n")
+            lines = [ ]
+            for line in got:
+                line = line.replace("<",'')
+                line = line.replace(">:",'')
+                lines.append("0x"+line)
+            # got = subprocess.check_output(cmd,shell=True)[:-2].decode('utf8')
+            print("\n".join(lines))
+        else :
+            print("No current process or executable file specified." )
 
     def got(self):
         """ Print the got table """

@@ -231,7 +231,13 @@ class PwnCmd(object):
                 cmd += "--demangle "
             cmd += "\"" + processname + "\""
             got = subprocess.check_output(cmd,shell=True)[:-2].decode('utf8')
-            print(got)
+            got = got.split('DYNAMIC RELOCATION RECORDS')[1].strip("\n")
+            lines = got.split("\n")
+            for line in range(len(lines)):
+                if not lines[line].startswith("OFFSET"):
+                    lines[line] = "0x"+lines[line]
+        
+            print("\n".join(lines))
         else :
             print("No current process or executable file specified." )
 

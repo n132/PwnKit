@@ -209,7 +209,7 @@ class PwnCmd(object):
         """ Print the plt table """
         processname = getprocname()
         if processname :
-            cmd = """objdump -d -j .plt.sec {} | grep '.*\<.*@plt\>' """.format(processname)
+            cmd = r"""objdump -d -j .plt.sec {} | grep '.*\<.*@plt\>' """.format(processname)
             got = subprocess.check_output(cmd, shell=True).decode("utf8").strip("\n")
             got = got.split("\n")
             lines = [ ]
@@ -231,7 +231,13 @@ class PwnCmd(object):
                 cmd += "--demangle "
             cmd += "\"" + processname + "\""
             got = subprocess.check_output(cmd,shell=True)[:-2].decode('utf8')
-            print(got)
+            got = got.split('DYNAMIC RELOCATION RECORDS')[1].strip("\n")
+            lines = got.split("\n")
+            for line in range(len(lines)):
+                if not lines[line].startswith("OFFSET"):
+                    lines[line] = "0x"+lines[line]
+        
+            print("\n".join(lines))
         else :
             print("No current process or executable file specified." )
 
@@ -364,7 +370,7 @@ class PwnCmd(object):
 
         (arg1,) = normalize_argv(arg,1)
         infomap = procmap()
-        data = re.search(".*libc*\.so.*",infomap)
+        data = re.search(r".*libc*\.so.*",infomap)
         if arg1 == None:
             arg1 = 0
         if data :
@@ -660,7 +666,7 @@ def getprocname(relative=False):
 
 def libcbase():
     infomap = procmap()
-    data = re.search(".*libc.*\.so",infomap)
+    data = re.search(r".*libc.*\.so",infomap)
     if data :
         libcaddr = data.group().split("-")[0]
         gdb.execute("set $libc=%s" % hex(int(libcaddr,16)))
@@ -670,7 +676,7 @@ def libcbase():
 
 def ldbase():
     infomap = procmap()
-    data = re.search(".*ld.*\.so",infomap)
+    data = re.search(r".*ld.*\.so",infomap)
     if data :
         ldaddr = data.group().split("-")[0]
         gdb.execute("set $ld=%s" % hex(int(ldaddr,16)))
@@ -680,7 +686,7 @@ def ldbase():
 
 def getheapbase():
     infomap = procmap()
-    data = re.search(".*heap\]",infomap)
+    data = re.search(r".*heap\]",infomap)
     if data :
         heapbase = data.group().split("-")[0]
         gdb.execute("set $heap=%s" % hex(int(heapbase,16)))

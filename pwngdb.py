@@ -407,9 +407,6 @@ class PwnCmd(object):
             # start, end, name
             res.append([int(segRange[0],16), int(segRange[1],16), items[-1]])
         return res
-
-    import os
-
     # Peda stuff
     def pager(self, text, pagesize=None):
         """
@@ -440,6 +437,9 @@ class PwnCmd(object):
         start   = mapslines[0].split("-")[0]
         end     = mapslines[-2].split("-")[0]
         return int(start.strip(),16), int(end.strip(),16)
+    def goto(self, *arg):
+        addr = arg[0]
+        gdb.execute("set $pc=%s" % (addr),to_string=True)
     def searchmem(self, *arg):
         # TODO:
         # Add Filters so we can search for a specific range

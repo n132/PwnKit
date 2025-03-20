@@ -12,6 +12,108 @@ from os import path
 
 import tempfile
 
+class XPTDebugger:
+    def __init__(self):
+        self.cur = {
+            'addr': 0,
+            'size': 0,
+            'rw': '',
+            'nx': '-',
+            'pr': '-'
+        }
+
+    def color_text(self, text, color):
+        colors = {
+            "purple": "\033[35m",  # Purple for rw=1
+            "red": "\033[31m",     # Red for nx=1
+            "white": "\033[37m",   # White for rw=0
+            "yellow": "\033[33m",  # Yellow for pr
+            "reset": "\033[0m"     # Reset color
+        }
+        return f"{colors[color]}{text}{colors['reset']}"
+
+    def get_line_color(self, rw, nx):
+        if rw == 'w' and nx == 'x':
+            return "\033[33m"  # Yellow for rw=1 and nx=1
+        elif rw == 'w':
+            return "\033[35m"  # Purple for rw=1
+        elif nx == 'x':
+            return "\033[31m"  # Red for nx=1
+        return "\033[37m"      # White for no rw
+
+    def calc_addr(self, pgd_idx, pud_idx=0, pmd_idx=0, pt_idx=0):
+        addr = (pgd_idx << 39) + (pud_idx << 30) + (pmd_idx << 21) + (pt_idx << 12)
+        return (addr | 0xffff000000000000) if pgd_idx >= 0x100 else addr
+
+    def flush_cur(self):
+        line_color = self.get_line_color(self.cur['rw'], self.cur['nx'])
+        reset_color = "\033[0m"
+        output = f"{line_color}{hex(self.cur['addr']):<18} {hex(self.cur['addr']+self.cur['size']):<18} {hex(self.cur['size']):>12} r{self.cur['rw']}{self.cur['nx']}{self.cur['pr']}{reset_color}"
+        print(output)
+
+    def set_cur(self, addr, size, rw, nx, pr):
+        self.cur['addr'] = addr
+        self.cur['size'] = size
+        self.cur['rw'], self.cur['nx'], self.cur['pr'] = rw, nx, pr
+
+    def load_new_seg(self, addr, size, rw, nx, pr):
+        rw = "w" if rw else '-'
+        nx = "x" if not nx else '-'
+        pr = "p" if pr else '-'
+        if self.cur['addr'] == 0:
+            self.set_cur(addr, size, rw, nx, pr)
+        else:
+            if self.cur['addr'] + self.cur['size'] == addr and self.cur['rw'] == rw and self.cur['nx'] == nx and self.cur['pr'] == pr:
+                self.cur['size'] += size
+            else:
+                self.flush_cur()
+                self.set_cur(addr, size, rw, nx, pr)
+
+    def xpt(self):
+        print(f"{'Address':<18} {'End':<18} {'Size':>12} Perm\t(xpt@n132)")
+        self.cur = {
+            'addr': 0,
+            'size': 0,
+            'rw': '',
+            'nx': '-',
+            'pr': '-'
+        }
+        cr3 = int(gdb.parse_and_eval('$cr3')) & 0xfffffffffffff000
+        VM = int(gdb.parse_and_eval('$VM'))
+        
+        for pgd_idx in range(512):
+            pud = int(gdb.parse_and_eval(f'*(unsigned long *)({VM} + {pgd_idx} * 8 + {cr3})'))
+            if not (pud & 1):
+                continue
+            pud_page = pud & 0x7ffffffffffff000
+
+            for pud_idx in range(512):
+                if pgd_idx == 0x1fe:  # Skip ESP fix area
+                    continue
+                pmd = int(gdb.parse_and_eval(f'*(unsigned long *)({VM} + {pud_idx} * 8 + {pud_page})'))
+                if not (pmd & 1):
+                    continue
+                if (1 << 7) & pmd:  # Huge PUD
+                    addr_start = self.calc_addr(pgd_idx, pud_idx, 0, 0)
+                    self.load_new_seg(addr_start, 0x40000000, (1 << 1) & pmd, (1 << 63) & pmd, (1 << 2) & pmd)
+                else:
+                    pmd_page = pmd & 0x7ffffffffffff000
+                    for pmd_idx in range(512):
+                        pt = int(gdb.parse_and_eval(f'*(unsigned long *)({VM} + {pmd_idx} * 8 + {pmd_page})'))
+                        if not (pt & 1):
+                            continue
+                        if (1 << 7) & pt:  # Huge PMD
+                            addr_start = self.calc_addr(pgd_idx, pud_idx, pmd_idx, 0)
+                            self.load_new_seg(addr_start, 0x200000, (1 << 1) & pt, (1 << 63) & pt, (1 << 2) & pt)
+                        else:
+                            pt_page = pt & 0x7ffffffffffff000
+                            for pt_idx in range(512):
+                                page_ptr = int(gdb.parse_and_eval(f'*(unsigned long *)({VM} + {pt_idx} * 8 + {pt_page})'))
+                                if not (page_ptr & 1):
+                                    continue
+                                addr_start = self.calc_addr(pgd_idx, pud_idx, pmd_idx, pt_idx)
+                                self.load_new_seg(addr_start, 0x1000, (1 << 1) & page_ptr, (1 << 63) & page_ptr, (1 << 2) & page_ptr)
+        self.flush_cur()
 
 directory, file = path.split(__file__)
 directory       = path.expanduser(directory)
@@ -153,7 +255,8 @@ class PwnCmd(object):
         """ test fsop """
         (addr,) = normalize_argv(arg,1)
         testfsop(addr) 
-
+    def xpt(self):
+        XPTDebugger().xpt()
     def magic(self):
         """ Print usefual variables or function in glibc """
         getarch()

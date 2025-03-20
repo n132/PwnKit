@@ -90,6 +90,8 @@ class XPTDebugger:
             for pud_idx in range(512):
                 if pgd_idx == 0x1fe:  # Skip ESP fix area
                     continue
+                if pgd_idx >= 0x1d8 and pgd_idx < 0x1f8:
+                    continue
                 pmd = int(gdb.parse_and_eval(f'*(unsigned long *)({VM} + {pud_idx} * 8 + {pud_page})'))
                 if not (pmd & 1):
                     continue

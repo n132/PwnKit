@@ -573,7 +573,6 @@ class PwnCmd(object):
 
         return
     def _searchmem(self, start, end, search, mem=None):
-        # searchmem(self, start, end, search, mem=None):
         """
         Search for all instances of a pattern in memory from start to end
 
@@ -595,7 +594,6 @@ class PwnCmd(object):
             mem = self._memSegs()
         if not mem:
             return result
-        
         if isinstance(search, six.string_types) and search.startswith("0x"):
             # hex number
             search = search[2:]
@@ -615,7 +613,10 @@ class PwnCmd(object):
             p = re.compile(search)
         result = ""
         for seg_start, seg_end, seg_name in mem:
-            seg_mem = self._dumpmem(seg_start,seg_end)
+            try:
+                seg_mem = self._dumpmem(seg_start,seg_end)
+            except:
+                continue
             found = list(p.finditer(seg_mem))
             for i in found:
                 result+=color.RED+seg_name+color.END+" "*(0x10-len(seg_name))+": "+color.YELLOW+hex(i.start()+seg_start)+color.END+'\n'
